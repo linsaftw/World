@@ -1,0 +1,89 @@
+name: World
+version: "${version}"
+main: io.yunuservices.world.Main
+bootstrapper: io.yunuservices.world.WorldBootstrap
+description: A world management plugin for Canvas.
+api-version: "1.21.11"
+authors:
+  - yunuservices
+folia-supported: true
+default-permission: op
+permissions:
+  world.*:
+    description: Grants access to all World plugin permissions.
+    default: op
+    children:
+      world.command.*: true
+  world.command.*:
+    description: Grants access to all World plugin commands.
+    default: op
+    children:
+      world.command.list: true
+      world.command.info: true
+      world.command.create: true
+      world.command.load: true
+      world.command.unload: true
+      world.command.delete: true
+      world.command.import: true
+      world.command.copy: true
+      world.command.tp: true
+      world.command.tp.other: true
+      world.command.spawn: true
+      world.command.spawn.other: true
+      world.command.set.*: true
+      world.command.setspawn: true
+      world.command.reload: true
+  world.command.set.*:
+    description: Grants access to World set subcommands.
+    default: op
+    children:
+      world.command.set.portal: true
+      world.command.set.transfer: true
+  world.command.list:
+    description: Allows use of /world list.
+    default: op
+  world.command.info:
+    description: Allows use of /world info.
+    default: op
+  world.command.create:
+    description: Allows use of /world create.
+    default: op
+  world.command.load:
+    description: Allows use of /world load.
+    default: op
+  world.command.unload:
+    description: Allows use of /world unload.
+    default: op
+  world.command.delete:
+    description: Allows use of /world delete.
+    default: op
+  world.command.import:
+    description: Allows use of /world import.
+    default: op
+  world.command.copy:
+    description: Allows use of /world copy.
+    default: op
+  world.command.tp:
+    description: Allows use of /world tp.
+    default: op
+  world.command.tp.other:
+    description: Allows targeting other players with /world tp.
+    default: op
+  world.command.spawn:
+    description: Allows use of /world spawn.
+    default: op
+  world.command.spawn.other:
+    description: Allows targeting other players with /world spawn.
+    default: op
+  world.command.set.portal:
+    description: Allows use of /world set portal.
+    default: op
+  world.command.set.transfer:
+    description: Allows use of /world set transfer.
+    default: op
+  world.command.setspawn:
+    description: Allows use of /world setspawn.
+    default: op
+  world.command.reload:
+    description: Allows use of /world reload.
+    default: op
