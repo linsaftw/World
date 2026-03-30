@@ -130,3 +130,4 @@ build/libs/World-1.0.0-SNAPSHOT.jar
 
 - `copy` is conservative: if the source world is loaded, the plugin unloads it before copying and reloads it afterward.
 - Cross-server transfer depends on runtime support for `Player#transfer`.
+- Licensed under the GNU Affero General Public License v3.0.
