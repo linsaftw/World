@@ -6,7 +6,7 @@ description: A world management plugin for Canvas.
 api-version: "1.21.11"
 authors:
   - yunuservices
-folia-supported: true
+canvas-supported: true
 default-permission: op
 permissions:
   world.*:
