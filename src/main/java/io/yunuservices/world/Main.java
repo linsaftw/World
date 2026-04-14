@@ -21,9 +21,10 @@ public final class Main extends JavaPlugin {
         this.configStore = new PluginConfigStore(this);
         this.worldsFileStore = new WorldsFileStore(this);
 
-        final WorldManagerService service = new CanvasWorldManagerService(this, this.configStore, this.worldsFileStore, this.messagesStore);
+        final CanvasWorldManagerService service = new CanvasWorldManagerService(this, this.configStore, this.worldsFileStore, this.messagesStore);
         Bukkit.getPluginManager().registerEvents(new WorldPortalListener(this, this.worldsFileStore, this.messagesStore), this);
         new WorldCommands(this, service).register();
+        service.loadTrackedWorldsOnStartup();
         this.getLogger().info("World has been enabled. Canvas world manager is ready.");
     }
 
@@ -40,12 +41,6 @@ public final class Main extends JavaPlugin {
     }
 
     private boolean isCanvasRuntime() {
-        try {
-            Class.forName("io.canvasmc.canvas.WorldUnloadResult");
-            Bukkit.getServer().getClass().getMethod("unloadWorldAsync", String.class, boolean.class, java.util.function.Consumer.class);
-            return true;
-        } catch (final ReflectiveOperationException ex) {
-            return false;
-        }
+        return true;
     }
 }

@@ -9,6 +9,7 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
@@ -39,11 +40,34 @@ public final class CanvasWorldManagerService implements WorldManagerService {
         final MessagesStore messagesStore
     ) {
         this.plugin = plugin;
-        this.worldContainer = Bukkit.getWorldContainer().toPath().normalize();
+        this.worldContainer = Bukkit.getWorldContainer().toPath().toAbsolutePath().normalize();
         this.configStore = configStore;
         this.worldsFileStore = worldsFileStore;
         this.messagesStore = messagesStore;
         this.directorySnapshot = DirectorySnapshot.empty();
+    }
+
+    public void loadTrackedWorldsOnStartup() {
+        final List<String> trackedWorlds = this.worldsFileStore.trackedWorldNames();
+        if (trackedWorlds.isEmpty()) {
+            return;
+        }
+
+        CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
+        for (final String trackedWorld : trackedWorlds) {
+            final String normalizedName = this.normalizeWorldName(trackedWorld).orElse(null);
+            if (normalizedName == null) {
+                this.plugin.getLogger().warning("Skipping invalid tracked world name during startup load: " + trackedWorld);
+                continue;
+            }
+            chain = chain.thenCompose(ignored -> this.loadTrackedWorldOnStartup(normalizedName));
+        }
+
+        chain.whenComplete((ignored, throwable) -> {
+            if (throwable != null) {
+                this.plugin.getLogger().warning("Tracked world startup loading stopped early: " + this.unwrap(throwable).getMessage());
+            }
+        });
     }
 
     @Override
@@ -52,9 +76,7 @@ public final class CanvasWorldManagerService implements WorldManagerService {
             .thenCompose(diskState -> this.runOnGlobalThread(() -> {
                 final Set<String> knownWorlds = new LinkedHashSet<>();
                 knownWorlds.addAll(diskState.names());
-                for (final String tracked : this.worldsFileStore.trackedWorldNames()) {
-                    knownWorlds.add(tracked);
-                }
+                knownWorlds.addAll(this.worldsFileStore.trackedWorldNames());
                 for (final World loadedWorld : Bukkit.getWorlds()) {
                     knownWorlds.add(loadedWorld.getName());
                 }
@@ -63,8 +85,8 @@ public final class CanvasWorldManagerService implements WorldManagerService {
                 for (final String worldName : knownWorlds) {
                     final World loadedWorld = Bukkit.getWorld(worldName);
                     final Path directory = loadedWorld != null
-                        ? loadedWorld.getWorldFolder().toPath()
-                        : this.resolveWorldPath(worldName);
+                        ? loadedWorld.getWorldFolder().toPath().toAbsolutePath().normalize()
+                        : this.safeResolveWorldPath(worldName);
                     worlds.add(this.describe(worldName, directory, loadedWorld, loadedWorld != null || diskState.names().contains(worldName)));
                 }
 
@@ -75,37 +97,61 @@ public final class CanvasWorldManagerService implements WorldManagerService {
 
     @Override
     public CompletableFuture<OperationOutcome<WorldDescriptor>> describeWorld(final String name) {
-        final Path directory = this.resolveWorldPath(name);
+        final String normalizedName = this.normalizeWorldName(name).orElse(null);
+        if (normalizedName == null) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(name));
+        }
+
+        final Path directory;
+        try {
+            directory = this.resolveWorldPath(normalizedName);
+        } catch (final IllegalArgumentException ex) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(name));
+        }
+
         return this.runAsyncIo(() -> Files.isDirectory(directory))
             .thenCompose(existsOnDisk -> this.runOnGlobalThread(() -> {
-                final World loadedWorld = Bukkit.getWorld(name);
-                final boolean tracked = this.worldsFileStore.isTracked(name);
+                final World loadedWorld = Bukkit.getWorld(normalizedName);
+                final boolean tracked = this.worldsFileStore.isTracked(normalizedName);
                 if (!existsOnDisk && loadedWorld == null && !tracked) {
-                    return OperationOutcome.failure(this.message("service.world_not_found", MessagePlaceholder.of("world", name)));
+                    return OperationOutcome.failure(this.message("service.world_not_found", MessagePlaceholder.of("world", normalizedName)));
                 }
 
-                final Path resolvedDirectory = loadedWorld != null ? loadedWorld.getWorldFolder().toPath() : directory;
+                final Path resolvedDirectory = loadedWorld != null
+                    ? loadedWorld.getWorldFolder().toPath().toAbsolutePath().normalize()
+                    : directory;
                 return OperationOutcome.success(
                     "World information is ready.",
-                    this.describe(name, resolvedDirectory, loadedWorld, existsOnDisk)
+                    this.describe(normalizedName, resolvedDirectory, loadedWorld, existsOnDisk)
                 );
             }));
     }
 
     @Override
     public CompletableFuture<OperationOutcome<World>> createWorld(final String name, final World.Environment environment, final Long seed) {
-        final Path target = this.resolveWorldPath(name);
+        final String normalizedName = this.normalizeWorldName(name).orElse(null);
+        if (normalizedName == null) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(name));
+        }
+
+        final Path target;
+        try {
+            target = this.resolveWorldPath(normalizedName);
+        } catch (final IllegalArgumentException ex) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(name));
+        }
+
         return this.runAsyncIo(() -> Files.exists(target))
             .thenCompose(existsOnDisk -> this.runOnGlobalThread(() -> {
-                if (Bukkit.getWorld(name) != null) {
-                    return OperationOutcome.failure(this.message("service.world_already_loaded", MessagePlaceholder.of("world", name)));
+                if (Bukkit.getWorld(normalizedName) != null) {
+                    return OperationOutcome.failure(this.message("service.world_already_loaded", MessagePlaceholder.of("world", normalizedName)));
                 }
                 if (existsOnDisk) {
-                    return OperationOutcome.failure(this.message("service.world_folder_exists_use_load", MessagePlaceholder.of("world", name)));
+                    return OperationOutcome.failure(this.message("service.world_folder_exists_use_load", MessagePlaceholder.of("world", normalizedName)));
                 }
 
                 final WorldDefaults defaults = this.configStore.settings().defaults();
-                final WorldCreator creator = WorldCreator.name(name)
+                final WorldCreator creator = WorldCreator.name(normalizedName)
                     .environment(environment)
                     .generateStructures(defaults.generateStructures())
                     .hardcore(defaults.hardcore());
@@ -127,26 +173,34 @@ public final class CanvasWorldManagerService implements WorldManagerService {
 
     @Override
     public CompletableFuture<OperationOutcome<World>> loadWorld(final String name, final World.Environment environment) {
-        final Path target = this.resolveWorldPath(name);
+        final String normalizedName = this.normalizeWorldName(name).orElse(null);
+        if (normalizedName == null) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(name));
+        }
+
+        final Path target;
+        try {
+            target = this.resolveWorldPath(normalizedName);
+        } catch (final IllegalArgumentException ex) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(name));
+        }
+
         return this.runAsyncIo(() -> Files.isDirectory(target))
             .thenCompose(existsOnDisk -> this.runOnGlobalThread(() -> {
-                final World existing = Bukkit.getWorld(name);
+                final World existing = Bukkit.getWorld(normalizedName);
                 if (existing != null) {
                     this.worldsFileStore.rememberEnvironment(existing.getName(), existing.getEnvironment());
-                    return OperationOutcome.success(this.message("service.world_already_loaded", MessagePlaceholder.of("world", name)), existing);
+                    return OperationOutcome.success(this.message("service.world_already_loaded", MessagePlaceholder.of("world", normalizedName)), existing);
                 }
                 if (!existsOnDisk) {
-                    return OperationOutcome.failure(this.message("service.world_folder_missing_use_create", MessagePlaceholder.of("world", name)));
+                    return OperationOutcome.failure(this.message("service.world_folder_missing_use_create", MessagePlaceholder.of("world", normalizedName)));
                 }
 
                 final WorldDefaults defaults = this.configStore.settings().defaults();
-                final World.Environment resolvedEnvironment = this.resolveEnvironmentForLoad(name, environment);
-                if (resolvedEnvironment == null) {
-                    return OperationOutcome.failure(this.message("service.environment_missing_load", MessagePlaceholder.of("world", name)));
-                }
+                final World.Environment resolvedEnvironment = this.resolveEnvironmentForLoad(normalizedName, environment);
 
                 final World world = Bukkit.createWorld(
-                    WorldCreator.name(name)
+                    WorldCreator.name(normalizedName)
                         .environment(resolvedEnvironment)
                         .generateStructures(defaults.generateStructures())
                         .hardcore(defaults.hardcore())
@@ -163,30 +217,46 @@ public final class CanvasWorldManagerService implements WorldManagerService {
 
     @Override
     public CompletableFuture<OperationOutcome<Void>> unloadWorld(final String name, final boolean save) {
+        final String normalizedName = this.normalizeWorldName(name).orElse(null);
+        if (normalizedName == null) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(name));
+        }
+
         final CompletableFuture<OperationOutcome<Void>> future = new CompletableFuture<>();
         Bukkit.getGlobalRegionScheduler().execute(this.plugin, () -> {
-            final World world = Bukkit.getWorld(name);
+            final World world = Bukkit.getWorld(normalizedName);
             if (world == null) {
-                future.complete(OperationOutcome.failure(this.message("service.world_not_loaded", MessagePlaceholder.of("world", name))));
+                future.complete(OperationOutcome.failure(this.message("service.world_not_loaded", MessagePlaceholder.of("world", normalizedName))));
                 return;
             }
 
-            Bukkit.getServer().unloadWorldAsync(name, save, result -> future.complete(this.mapUnloadResult(name, result)));
+            Bukkit.getServer().unloadWorldAsync(normalizedName, save, result -> future.complete(this.mapUnloadResult(normalizedName, result)));
         });
         return future;
     }
 
     @Override
     public CompletableFuture<OperationOutcome<Void>> deleteWorld(final String name, final boolean save) {
-        final Path target = this.resolveWorldPath(name);
+        final String normalizedName = this.normalizeWorldName(name).orElse(null);
+        if (normalizedName == null) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(name));
+        }
+
+        final Path target;
+        try {
+            target = this.resolveWorldPath(normalizedName);
+        } catch (final IllegalArgumentException ex) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(name));
+        }
+
         return this.runAsyncIo(() -> Files.isDirectory(target))
-            .thenCompose(existsOnDisk -> this.ensureUnloaded(name, save).thenCompose(unloadOutcome -> {
+            .thenCompose(existsOnDisk -> this.ensureUnloaded(normalizedName, save).thenCompose(unloadOutcome -> {
                 if (!unloadOutcome.success()) {
                     return CompletableFuture.completedFuture(unloadOutcome);
                 }
                 if (!existsOnDisk) {
                     return CompletableFuture.completedFuture(
-                        OperationOutcome.<Void>failure(this.message("service.world_folder_missing", MessagePlaceholder.of("world", name)))
+                        OperationOutcome.<Void>failure(this.message("service.world_folder_missing", MessagePlaceholder.of("world", normalizedName)))
                     );
                 }
 
@@ -194,11 +264,11 @@ public final class CanvasWorldManagerService implements WorldManagerService {
                     try {
                         this.deleteDirectory(target);
                     } catch (final IOException ex) {
-                        throw new IllegalStateException("Failed to delete world folder '" + name + "'.", ex);
+                        throw new IllegalStateException("Failed to delete world folder '" + normalizedName + "'.", ex);
                     }
-                    return OperationOutcome.<Void>success(this.message("service.world_deleted", MessagePlaceholder.of("world", name)), null);
+                    return OperationOutcome.<Void>success(this.message("service.world_deleted", MessagePlaceholder.of("world", normalizedName)), null);
                 }).thenApply(outcome -> {
-                    this.worldsFileStore.removeWorld(name);
+                    this.worldsFileStore.removeWorld(normalizedName);
                     this.invalidateDirectorySnapshot();
                     return outcome;
                 }).exceptionally(throwable -> OperationOutcome.<Void>failure(this.normalizeThrowable(this.unwrap(throwable))));
@@ -206,38 +276,78 @@ public final class CanvasWorldManagerService implements WorldManagerService {
     }
 
     @Override
+    public CompletableFuture<OperationOutcome<Void>> untrackWorld(final String name) {
+        final String normalizedName = this.normalizeWorldName(name).orElse(null);
+        if (normalizedName == null) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(name));
+        }
+
+        return this.runOnGlobalThread(() -> {
+            if (!this.worldsFileStore.isTracked(normalizedName)) {
+                return OperationOutcome.failure(this.message("service.world_not_tracked", MessagePlaceholder.of("world", normalizedName)));
+            }
+
+            this.worldsFileStore.removeWorld(normalizedName);
+            return OperationOutcome.success(this.message("service.world_untracked", MessagePlaceholder.of("world", normalizedName)), null);
+        });
+    }
+
+    @Override
     public CompletableFuture<OperationOutcome<Void>> importWorld(final String name, final World.Environment environment) {
-        final Path target = this.resolveWorldPath(name);
+        final String normalizedName = this.normalizeWorldName(name).orElse(null);
+        if (normalizedName == null) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(name));
+        }
+
+        final Path target;
+        try {
+            target = this.resolveWorldPath(normalizedName);
+        } catch (final IllegalArgumentException ex) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(name));
+        }
+
         return this.runAsyncIo(() -> Files.isDirectory(target))
             .thenCompose(existsOnDisk -> this.runOnGlobalThread(() -> {
-                final World loadedWorld = Bukkit.getWorld(name);
+                final World loadedWorld = Bukkit.getWorld(normalizedName);
                 if (!existsOnDisk && loadedWorld == null) {
-                    return OperationOutcome.failure(this.message("service.world_or_memory_missing", MessagePlaceholder.of("world", name)));
+                    return OperationOutcome.failure(this.message("service.world_or_memory_missing", MessagePlaceholder.of("world", normalizedName)));
                 }
 
                 final World.Environment resolvedEnvironment = loadedWorld != null
                     ? loadedWorld.getEnvironment()
-                    : this.resolveEnvironmentForLoad(name, environment);
-
-                if (resolvedEnvironment == null) {
-                    return OperationOutcome.failure(this.message("service.environment_missing_import", MessagePlaceholder.of("world", name)));
-                }
+                    : this.resolveEnvironmentForLoad(normalizedName, environment);
 
                 final Location spawn = loadedWorld != null && this.configStore.settings().captureSpawnOnImport()
                     ? loadedWorld.getSpawnLocation()
                     : null;
 
-                this.worldsFileStore.trackWorld(name, resolvedEnvironment, spawn);
-                return OperationOutcome.success(this.message("service.world_imported", MessagePlaceholder.of("world", name)), null);
+                this.worldsFileStore.trackWorld(normalizedName, resolvedEnvironment, spawn);
+                return OperationOutcome.success(this.message("service.world_imported", MessagePlaceholder.of("world", normalizedName)), null);
             }));
     }
 
     @Override
     public CompletableFuture<OperationOutcome<Void>> copyWorld(final String sourceName, final String targetName, final boolean loadCopiedWorld) {
-        final Path sourcePath = this.resolveWorldPath(sourceName);
-        final Path targetPath = this.resolveWorldPath(targetName);
+        final String normalizedSourceName = this.normalizeWorldName(sourceName).orElse(null);
+        if (normalizedSourceName == null) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(sourceName));
+        }
 
-        final CompletableFuture<OperationOutcome<Void>> future = this.prepareCopy(sourceName, targetName, sourcePath, targetPath)
+        final String normalizedTargetName = this.normalizeWorldName(targetName).orElse(null);
+        if (normalizedTargetName == null) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(targetName));
+        }
+
+        final Path sourcePath;
+        final Path targetPath;
+        try {
+            sourcePath = this.resolveWorldPath(normalizedSourceName);
+            targetPath = this.resolveWorldPath(normalizedTargetName);
+        } catch (final IllegalArgumentException ex) {
+            return CompletableFuture.completedFuture(OperationOutcome.failure(this.normalizeThrowable(ex)));
+        }
+
+        final CompletableFuture<OperationOutcome<Void>> future = this.prepareCopy(normalizedSourceName, normalizedTargetName, sourcePath, targetPath)
             .thenCompose(preparationOutcome -> {
                 if (!preparationOutcome.success() || preparationOutcome.value() == null) {
                     return CompletableFuture.completedFuture(OperationOutcome.<Void>failure(preparationOutcome.message()));
@@ -245,7 +355,7 @@ public final class CanvasWorldManagerService implements WorldManagerService {
 
                 final CopyPreparation preparation = preparationOutcome.value();
                 final CompletableFuture<OperationOutcome<Void>> unloadFuture = preparation.sourceWasLoaded()
-                    ? this.unloadWorld(sourceName, true).thenApply(unloadOutcome -> unloadOutcome.success()
+                    ? this.unloadWorld(normalizedSourceName, true).thenApply(unloadOutcome -> unloadOutcome.success()
                         ? unloadOutcome
                         : OperationOutcome.<Void>failure(
                             this.message("service.copy_unload_failed", MessagePlaceholder.of("reason", this.messagesStore.plainText(unloadOutcome.message())))
@@ -261,16 +371,16 @@ public final class CanvasWorldManagerService implements WorldManagerService {
                         try {
                             this.copyDirectory(sourcePath, targetPath);
                         } catch (final IOException ex) {
-                            throw new IllegalStateException("Failed to copy world folder '" + sourceName + "'.", ex);
+                            throw new IllegalStateException("Failed to copy world folder '" + normalizedSourceName + "'.", ex);
                         }
                         this.invalidateDirectorySnapshot();
-                        this.worldsFileStore.copyWorldSettings(sourceName, targetName, preparation.environment());
+                        this.worldsFileStore.copyWorldSettings(normalizedSourceName, normalizedTargetName, preparation.environment());
                         return OperationOutcome.<Void>success(this.message(
                             "service.copy_copied",
-                            MessagePlaceholder.of("source", sourceName),
-                            MessagePlaceholder.of("target", targetName)
+                            MessagePlaceholder.of("source", normalizedSourceName),
+                            MessagePlaceholder.of("target", normalizedTargetName)
                         ), null);
-                    }).thenCompose(copyOutcome -> this.finishCopy(preparation, sourceName, targetName, loadCopiedWorld, copyOutcome));
+                    }).thenCompose(copyOutcome -> this.finishCopy(preparation, normalizedSourceName, normalizedTargetName, loadCopiedWorld, copyOutcome));
                 });
             });
 
@@ -292,10 +402,15 @@ public final class CanvasWorldManagerService implements WorldManagerService {
 
     @Override
     public CompletableFuture<OperationOutcome<Void>> setSpawn(final String worldName, final Location location) {
+        final String normalizedName = this.normalizeWorldName(worldName).orElse(null);
+        if (normalizedName == null) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(worldName));
+        }
+
         return this.runOnGlobalThread(() -> {
-            final World world = Bukkit.getWorld(worldName);
+            final World world = Bukkit.getWorld(normalizedName);
             if (world == null) {
-                return OperationOutcome.failure(this.message("service.world_not_loaded", MessagePlaceholder.of("world", worldName)));
+                return OperationOutcome.failure(this.message("service.world_not_loaded", MessagePlaceholder.of("world", normalizedName)));
             }
 
             final Location spawn = new Location(
@@ -314,10 +429,18 @@ public final class CanvasWorldManagerService implements WorldManagerService {
 
     @Override
     public CompletableFuture<OperationOutcome<Void>> setPortalTarget(final String worldName, final PortalKind portalKind, final String targetWorldName) {
+        final String normalizedWorldName = this.normalizeWorldName(worldName).orElse(null);
+        if (normalizedWorldName == null) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(worldName));
+        }
+        if (!this.isClearValue(targetWorldName) && this.normalizeWorldName(targetWorldName).isEmpty()) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(targetWorldName));
+        }
+
         return this.runOnGlobalThread(() -> {
-            final World world = Bukkit.getWorld(worldName);
+            final World world = Bukkit.getWorld(normalizedWorldName);
             if (world == null) {
-                return OperationOutcome.failure(this.message("service.world_not_loaded", MessagePlaceholder.of("world", worldName)));
+                return OperationOutcome.failure(this.message("service.world_not_loaded", MessagePlaceholder.of("world", normalizedWorldName)));
             }
 
             if (this.isClearValue(targetWorldName)) {
@@ -332,9 +455,10 @@ public final class CanvasWorldManagerService implements WorldManagerService {
                 );
             }
 
-            final World targetWorld = Bukkit.getWorld(targetWorldName);
+            final String normalizedTargetWorldName = this.normalizeWorldName(targetWorldName).orElseThrow();
+            final World targetWorld = Bukkit.getWorld(normalizedTargetWorldName);
             if (targetWorld == null) {
-                return OperationOutcome.failure(this.message("service.target_world_not_loaded", MessagePlaceholder.of("world", targetWorldName)));
+                return OperationOutcome.failure(this.message("service.target_world_not_loaded", MessagePlaceholder.of("world", normalizedTargetWorldName)));
             }
 
             this.worldsFileStore.rememberEnvironment(world.getName(), world.getEnvironment());
@@ -353,11 +477,16 @@ public final class CanvasWorldManagerService implements WorldManagerService {
 
     @Override
     public CompletableFuture<OperationOutcome<Void>> setPortalTransfer(final String worldName, final PortalKind portalKind, final String endpoint) {
+        final String normalizedWorldName = this.normalizeWorldName(worldName).orElse(null);
+        if (normalizedWorldName == null) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(worldName));
+        }
+
         if (this.isClearValue(endpoint)) {
             return this.runOnGlobalThread(() -> {
-                final World world = Bukkit.getWorld(worldName);
+                final World world = Bukkit.getWorld(normalizedWorldName);
                 if (world == null) {
-                    return OperationOutcome.failure(this.message("service.world_not_loaded", MessagePlaceholder.of("world", worldName)));
+                    return OperationOutcome.failure(this.message("service.world_not_loaded", MessagePlaceholder.of("world", normalizedWorldName)));
                 }
 
                 this.worldsFileStore.clearPortalTransfer(world.getName(), portalKind);
@@ -380,9 +509,9 @@ public final class CanvasWorldManagerService implements WorldManagerService {
         }
 
         return this.runOnGlobalThread(() -> {
-            final World world = Bukkit.getWorld(worldName);
+            final World world = Bukkit.getWorld(normalizedWorldName);
             if (world == null) {
-                return OperationOutcome.failure(this.message("service.world_not_loaded", MessagePlaceholder.of("world", worldName)));
+                return OperationOutcome.failure(this.message("service.world_not_loaded", MessagePlaceholder.of("world", normalizedWorldName)));
             }
 
             this.worldsFileStore.rememberEnvironment(world.getName(), world.getEnvironment());
@@ -447,6 +576,11 @@ public final class CanvasWorldManagerService implements WorldManagerService {
     }
 
     @Override
+    public CompletableFuture<List<String>> suggestTrackedWorlds() {
+        return this.runAsyncIo(this.worldsFileStore::trackedWorldNames);
+    }
+
+    @Override
     public CompletableFuture<List<String>> suggestDiskWorlds() {
         return this.runAsyncIo(() -> this.readDiskWorldState().directories().stream()
             .map(path -> path.getFileName().toString())
@@ -475,12 +609,64 @@ public final class CanvasWorldManagerService implements WorldManagerService {
         Bukkit.getGlobalRegionScheduler().execute(this.plugin, () -> sender.sendMessage(component));
     }
 
+    private CompletableFuture<Void> loadTrackedWorldOnStartup(final String worldName) {
+        if (Bukkit.getWorld(worldName) != null) {
+            final World world = Bukkit.getWorld(worldName);
+            if (world != null) {
+                this.worldsFileStore.rememberEnvironment(world.getName(), world.getEnvironment());
+            }
+            return CompletableFuture.completedFuture(null);
+        }
+
+        final Path target;
+        try {
+            target = this.resolveWorldPath(worldName);
+        } catch (final IllegalArgumentException ex) {
+            this.plugin.getLogger().warning("Tracked world '" + worldName + "' was skipped on startup because its path is invalid.");
+            return CompletableFuture.completedFuture(null);
+        }
+
+        return this.runAsyncIo(() -> Files.isDirectory(target)).thenCompose(existsOnDisk -> {
+            if (!existsOnDisk) {
+                this.plugin.getLogger().warning("Tracked world '" + worldName + "' was skipped on startup because its folder is missing.");
+                return CompletableFuture.completedFuture(null);
+            }
+
+            return this.loadWorld(worldName, null).handle((outcome, throwable) -> {
+                this.logStartupLoadResult(worldName, outcome, throwable);
+                return null;
+            });
+        });
+    }
+
+    private void logStartupLoadResult(final String worldName, final OperationOutcome<World> outcome, final Throwable throwable) {
+        if (throwable != null) {
+            final Throwable unwrapped = this.unwrap(throwable);
+            this.plugin.getLogger().warning("Tracked world '" + worldName + "' failed to load on startup: " + unwrapped.getMessage());
+            return;
+        }
+        if (outcome == null) {
+            this.plugin.getLogger().warning("Tracked world '" + worldName + "' failed to load on startup for an unknown reason.");
+            return;
+        }
+        if (!outcome.success()) {
+            this.plugin.getLogger().warning("Tracked world '" + worldName + "' failed to load on startup: " + this.messagesStore.plainText(outcome.message()));
+            return;
+        }
+        this.plugin.getLogger().info("Tracked world '" + worldName + "' loaded on startup.");
+    }
+
     private CompletableFuture<OperationOutcome<Void>> teleport(final Player player, final String worldName, final boolean useConfiguredSpawn) {
+        final String normalizedWorldName = this.normalizeWorldName(worldName).orElse(null);
+        if (normalizedWorldName == null) {
+            return CompletableFuture.completedFuture(this.invalidWorldNameOutcome(worldName));
+        }
+
         final CompletableFuture<OperationOutcome<Void>> future = new CompletableFuture<>();
         Bukkit.getGlobalRegionScheduler().execute(this.plugin, () -> {
-            final World target = Bukkit.getWorld(worldName);
+            final World target = Bukkit.getWorld(normalizedWorldName);
             if (target == null) {
-                future.complete(OperationOutcome.failure(this.message("service.world_not_loaded", MessagePlaceholder.of("world", worldName))));
+                future.complete(OperationOutcome.failure(this.message("service.world_not_loaded", MessagePlaceholder.of("world", normalizedWorldName))));
                 return;
             }
 
@@ -577,17 +763,7 @@ public final class CanvasWorldManagerService implements WorldManagerService {
         if (normalized.endsWith("_the_end") || normalized.endsWith("_end")) {
             return World.Environment.THE_END;
         }
-        return null;
-    }
-
-    private CompletableFuture<World.Environment> resolveEnvironment(final String worldName) {
-        return this.runOnGlobalThread(() -> {
-            final World loaded = Bukkit.getWorld(worldName);
-            if (loaded != null) {
-                return OperationOutcome.success("Environment resolved.", loaded.getEnvironment());
-            }
-            return OperationOutcome.success("Environment resolved.", this.resolveEnvironmentForLoad(worldName, null));
-        }).thenApply(OperationOutcome::value);
+        return this.configStore.settings().defaults().environment();
     }
 
     private boolean looksLikeWorldFolder(final Path directory) {
@@ -595,7 +771,25 @@ public final class CanvasWorldManagerService implements WorldManagerService {
     }
 
     private Path resolveWorldPath(final String worldName) {
-        return this.worldContainer.resolve(worldName).normalize();
+        final String normalizedName = this.normalizeWorldName(worldName)
+            .orElseThrow(() -> new IllegalArgumentException("Invalid managed world name: " + worldName));
+        final Path resolved = this.worldContainer.resolve(normalizedName).toAbsolutePath().normalize();
+        if (!resolved.startsWith(this.worldContainer)) {
+            throw new IllegalArgumentException("Refusing to use a path outside the world container: " + normalizedName);
+        }
+        return resolved;
+    }
+
+    private Path safeResolveWorldPath(final String worldName) {
+        try {
+            return this.resolveWorldPath(worldName);
+        } catch (final IllegalArgumentException ex) {
+            return this.worldContainer.resolve(String.valueOf(worldName)).toAbsolutePath().normalize();
+        }
+    }
+
+    private Optional<String> normalizeWorldName(final String raw) {
+        return WorldNameRules.normalize(raw);
     }
 
     private boolean isClearValue(final String raw) {
@@ -608,10 +802,20 @@ public final class CanvasWorldManagerService implements WorldManagerService {
     }
 
     private void copyDirectory(final Path source, final Path target) throws IOException {
-        try (Stream<Path> stream = Files.walk(source)) {
+        final Path normalizedSource = source.toAbsolutePath().normalize();
+        final Path normalizedTarget = target.toAbsolutePath().normalize();
+
+        if (!normalizedSource.startsWith(this.worldContainer)) {
+            throw new IOException("Refusing to copy from a path outside the world container: " + normalizedSource);
+        }
+        if (!normalizedTarget.startsWith(this.worldContainer)) {
+            throw new IOException("Refusing to copy to a path outside the world container: " + normalizedTarget);
+        }
+
+        try (Stream<Path> stream = Files.walk(normalizedSource)) {
             stream.forEach(sourcePath -> {
-                final Path relative = source.relativize(sourcePath);
-                final Path targetPath = target.resolve(relative);
+                final Path relative = normalizedSource.relativize(sourcePath);
+                final Path targetPath = normalizedTarget.resolve(relative);
                 try {
                     if (Files.isDirectory(sourcePath)) {
                         Files.createDirectories(targetPath);
@@ -638,11 +842,12 @@ public final class CanvasWorldManagerService implements WorldManagerService {
     }
 
     private void deleteDirectory(final Path target) throws IOException {
-        if (!target.normalize().startsWith(this.worldContainer)) {
-            throw new IOException("Refusing to delete a path outside the world container: " + target);
+        final Path normalizedTarget = target.toAbsolutePath().normalize();
+        if (!normalizedTarget.startsWith(this.worldContainer)) {
+            throw new IOException("Refusing to delete a path outside the world container: " + normalizedTarget);
         }
 
-        try (Stream<Path> stream = Files.walk(target)) {
+        try (Stream<Path> stream = Files.walk(normalizedTarget)) {
             stream.sorted(Comparator.reverseOrder()).forEach(path -> {
                 try {
                     Files.deleteIfExists(path);
@@ -693,6 +898,10 @@ public final class CanvasWorldManagerService implements WorldManagerService {
         }
 
         return this.message("general.internal_error", MessagePlaceholder.of("reason", message.strip()));
+    }
+
+    private <T> OperationOutcome<T> invalidWorldNameOutcome(final String input) {
+        return OperationOutcome.failure(this.message("general.invalid_world_name", MessagePlaceholder.of("input", String.valueOf(input))));
     }
 
     private CompletableFuture<OperationOutcome<CopyPreparation>> prepareCopy(

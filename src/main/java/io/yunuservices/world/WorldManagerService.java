@@ -22,6 +22,8 @@ public interface WorldManagerService {
 
     CompletableFuture<OperationOutcome<Void>> deleteWorld(String name, boolean save);
 
+    CompletableFuture<OperationOutcome<Void>> untrackWorld(String name);
+
     CompletableFuture<OperationOutcome<Void>> importWorld(String name, World.Environment environment);
 
     CompletableFuture<OperationOutcome<Void>> copyWorld(String sourceName, String targetName, boolean loadCopiedWorld);
@@ -41,6 +43,8 @@ public interface WorldManagerService {
     CompletableFuture<List<String>> suggestKnownWorlds();
 
     CompletableFuture<List<String>> suggestLoadedWorlds();
+
+    CompletableFuture<List<String>> suggestTrackedWorlds();
 
     CompletableFuture<List<String>> suggestDiskWorlds();
 

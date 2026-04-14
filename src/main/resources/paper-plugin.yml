@@ -7,6 +7,7 @@ api-version: "1.21.11"
 authors:
   - yunuservices
 canvas-supported: true
+folia-supported: true
 default-permission: op
 permissions:
   world.*:
@@ -24,6 +25,7 @@ permissions:
       world.command.load: true
       world.command.unload: true
       world.command.delete: true
+      world.command.untrack: true
       world.command.import: true
       world.command.copy: true
       world.command.tp: true
@@ -56,6 +58,9 @@ permissions:
     default: op
   world.command.delete:
     description: Allows use of /world delete.
+    default: op
+  world.command.untrack:
+    description: Allows use of /world untrack.
     default: op
   world.command.import:
     description: Allows use of /world import.

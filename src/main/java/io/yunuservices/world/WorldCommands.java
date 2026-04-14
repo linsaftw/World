@@ -40,93 +40,96 @@ public final class WorldCommands {
         this.messagesStore = plugin.messagesStore();
         this.service = service;
         this.commandManager = PaperCommandManager.builder()
-            .executionCoordinator(
-                ExecutionCoordinator.<CommandSourceStack>builder()
-                    .executor(ExecutionCoordinator.nonSchedulingExecutor())
-                    .build()
-            )
-            .buildOnEnable(plugin);
+                .executionCoordinator(
+                        ExecutionCoordinator.<CommandSourceStack>builder()
+                                .executor(ExecutionCoordinator.nonSchedulingExecutor())
+                                .build())
+                .buildOnEnable(plugin);
     }
 
     public void register() {
         this.commandManager.command(this.base("list", "world.command.list").handler(this::handleList));
         this.commandManager.command(this.base("info", "world.command.info")
-            .required("name", StringParser.stringParser(), this.knownWorldSuggestions())
-            .handler(this::handleInfo));
+                .required("name", StringParser.stringParser(), this.knownWorldSuggestions())
+                .handler(this::handleInfo));
         this.commandManager.command(this.base("create", "world.command.create")
-            .required("name", StringParser.stringParser())
-            .optional("environment", StringParser.stringParser(), this.environmentSuggestions())
-            .optional("seed", LongParser.longParser())
-            .handler(this::handleCreate));
+                .required("name", StringParser.stringParser())
+                .optional("environment", StringParser.stringParser(), this.environmentSuggestions())
+                .optional("seed", LongParser.longParser())
+                .handler(this::handleCreate));
         this.commandManager.command(this.base("load", "world.command.load")
-            .required("name", StringParser.stringParser(), this.diskWorldSuggestions())
-            .optional("environment", StringParser.stringParser(), this.environmentSuggestions())
-            .handler(this::handleLoad));
+                .required("name", StringParser.stringParser(), this.diskWorldSuggestions())
+                .optional("environment", StringParser.stringParser(), this.environmentSuggestions())
+                .handler(this::handleLoad));
         this.commandManager.command(this.base("unload", "world.command.unload")
-            .required("name", StringParser.stringParser(), this.loadedWorldSuggestions())
-            .optional("save", BooleanParser.booleanParser(), SuggestionProvider.suggestingStrings("true", "false"))
-            .handler(this::handleUnload));
+                .required("name", StringParser.stringParser(), this.loadedWorldSuggestions())
+                .optional("save", BooleanParser.booleanParser(), SuggestionProvider.suggestingStrings("true", "false"))
+                .handler(this::handleUnload));
         this.commandManager.command(this.base("delete", "world.command.delete")
-            .required("name", StringParser.stringParser(), this.knownWorldSuggestions())
-            .optional("save", BooleanParser.booleanParser(), SuggestionProvider.suggestingStrings("true", "false"))
-            .handler(this::handleDelete));
+                .required("name", StringParser.stringParser(), this.knownWorldSuggestions())
+                .optional("save", BooleanParser.booleanParser(), SuggestionProvider.suggestingStrings("true", "false"))
+                .handler(this::handleDelete));
+        this.commandManager.command(this.base("untrack", "world.command.untrack")
+                .required("name", StringParser.stringParser(), this.trackedWorldSuggestions())
+                .handler(this::handleUntrack));
         this.commandManager.command(this.base("import", "world.command.import")
-            .required("name", StringParser.stringParser(), this.diskWorldSuggestions())
-            .optional("environment", StringParser.stringParser(), this.environmentSuggestions())
-            .handler(this::handleImport));
+                .required("name", StringParser.stringParser(), this.diskWorldSuggestions())
+                .optional("environment", StringParser.stringParser(), this.environmentSuggestions())
+                .handler(this::handleImport));
         this.commandManager.command(this.base("copy", "world.command.copy")
-            .required("source", StringParser.stringParser(), this.knownWorldSuggestions())
-            .required("target", StringParser.stringParser())
-            .optional("load", BooleanParser.booleanParser(), SuggestionProvider.suggestingStrings("true", "false"))
-            .handler(this::handleCopy));
+                .required("source", StringParser.stringParser(), this.knownWorldSuggestions())
+                .required("target", StringParser.stringParser())
+                .optional("load", BooleanParser.booleanParser(), SuggestionProvider.suggestingStrings("true", "false"))
+                .handler(this::handleCopy));
         this.commandManager.command(this.base("tp", "world.command.tp")
-            .required("world", StringParser.stringParser(), this.loadedWorldSuggestions())
-            .optional("player", StringParser.stringParser(), this.playerSuggestions())
-            .handler(this::handleTeleport));
+                .required("world", StringParser.stringParser(), this.loadedWorldSuggestions())
+                .optional("player", StringParser.stringParser(), this.playerSuggestions())
+                .handler(this::handleTeleport));
         this.commandManager.command(this.base("spawn", "world.command.spawn").handler(this::handleSpawnSelf));
         this.commandManager.command(this.base("spawn", "world.command.spawn")
-            .required("world", StringParser.stringParser(), this.loadedWorldSuggestions())
-            .handler(this::handleSpawnWorld));
+                .required("world", StringParser.stringParser(), this.loadedWorldSuggestions())
+                .handler(this::handleSpawnWorld));
         this.commandManager.command(this.base("spawn", "world.command.spawn")
-            .required("world", StringParser.stringParser(), this.loadedWorldSuggestions())
-            .required("player", StringParser.stringParser(), this.playerSuggestions())
-            .handler(this::handleSpawnOther));
-        this.commandManager.command(this.base("setspawn", "world.command.setspawn").handler(this::handleSetSpawnCurrent));
+                .required("world", StringParser.stringParser(), this.loadedWorldSuggestions())
+                .required("player", StringParser.stringParser(), this.playerSuggestions())
+                .handler(this::handleSpawnOther));
+        this.commandManager
+                .command(this.base("setspawn", "world.command.setspawn").handler(this::handleSetSpawnCurrent));
         this.commandManager.command(this.base("setspawn", "world.command.setspawn")
-            .required("world", StringParser.stringParser(), this.loadedWorldSuggestions())
-            .handler(this::handleSetSpawnWorldCurrentSpawn));
+                .required("world", StringParser.stringParser(), this.loadedWorldSuggestions())
+                .handler(this::handleSetSpawnWorldCurrentSpawn));
         this.commandManager.command(this.base("setspawn", "world.command.setspawn")
-            .required("world", StringParser.stringParser(), this.loadedWorldSuggestions())
-            .required("x", DoubleParser.doubleParser())
-            .required("y", DoubleParser.doubleParser())
-            .required("z", DoubleParser.doubleParser())
-            .optional("yaw", FloatParser.floatParser())
-            .optional("pitch", FloatParser.floatParser())
-            .handler(this::handleSetSpawnExplicit));
+                .required("world", StringParser.stringParser(), this.loadedWorldSuggestions())
+                .required("x", DoubleParser.doubleParser())
+                .required("y", DoubleParser.doubleParser())
+                .required("z", DoubleParser.doubleParser())
+                .optional("yaw", FloatParser.floatParser())
+                .optional("pitch", FloatParser.floatParser())
+                .handler(this::handleSetSpawnExplicit));
         this.commandManager.command(this.setBase("portal", "world.command.set.portal")
-            .required("world", StringParser.stringParser(), this.loadedWorldSuggestions())
-            .required("portal", StringParser.stringParser(), this.portalSuggestions())
-            .required("target", StringParser.stringParser(), this.loadedWorldOrClearSuggestions())
-            .handler(this::handleSetPortal));
+                .required("world", StringParser.stringParser(), this.loadedWorldSuggestions())
+                .required("portal", StringParser.stringParser(), this.portalSuggestions())
+                .required("target", StringParser.stringParser(), this.loadedWorldOrClearSuggestions())
+                .handler(this::handleSetPortal));
         this.commandManager.command(this.setBase("transfer", "world.command.set.transfer")
-            .required("world", StringParser.stringParser(), this.loadedWorldSuggestions())
-            .required("portal", StringParser.stringParser(), this.portalSuggestions())
-            .required("target", StringParser.stringParser(), this.clearOnlySuggestions())
-            .handler(this::handleSetTransfer));
+                .required("world", StringParser.stringParser(), this.loadedWorldSuggestions())
+                .required("portal", StringParser.stringParser(), this.portalSuggestions())
+                .required("target", StringParser.stringParser(), this.clearOnlySuggestions())
+                .handler(this::handleSetTransfer));
         this.commandManager.command(this.base("reload", "world.command.reload").handler(this::handleReload));
     }
 
     private Command.Builder<CommandSourceStack> base(final String literal, final String permission) {
         return this.commandManager.commandBuilder("world")
-            .literal(literal)
-            .permission(permission);
+                .literal(literal)
+                .permission(permission);
     }
 
     private Command.Builder<CommandSourceStack> setBase(final String literal, final String permission) {
         return this.commandManager.commandBuilder("world")
-            .literal("set")
-            .literal(literal)
-            .permission(permission);
+                .literal("set")
+                .literal(literal)
+                .permission(permission);
     }
 
     private void handleList(final CommandContext<CommandSourceStack> context) {
@@ -141,14 +144,15 @@ public final class WorldCommands {
             }
 
             return worlds.stream()
-                .map(descriptor -> this.messagesStore.message(
-                    "general.list_entry",
-                    this.placeholder("name", descriptor.name()),
-                    this.placeholder("state", descriptor.loaded() ? this.messagesStore.value("values.state.loaded") : this.messagesStore.value("values.state.disk")),
-                    this.placeholder("tracked", descriptor.tracked()),
-                    this.placeholder("environment", this.nullSafe(descriptor.environment()))
-                ))
-                .toList();
+                    .map(descriptor -> this.messagesStore.message(
+                            "general.list_entry",
+                            this.placeholder("name", descriptor.name()),
+                            this.placeholder("state",
+                                    descriptor.loaded() ? this.messagesStore.value("values.state.loaded")
+                                            : this.messagesStore.value("values.state.disk")),
+                            this.placeholder("tracked", descriptor.tracked()),
+                            this.placeholder("environment", this.nullSafe(descriptor.environment()))))
+                    .toList();
         });
     }
 
@@ -161,80 +165,98 @@ public final class WorldCommands {
 
             final WorldDescriptor descriptor = outcome.value();
             return List.of(
-                this.infoLine("values.info.name", descriptor.name()),
-                this.infoLine("values.info.loaded", descriptor.loaded()),
-                this.infoLine("values.info.exists_on_disk", descriptor.existsOnDisk()),
-                this.infoLine("values.info.tracked", descriptor.tracked()),
-                this.infoLine("values.info.path", this.normalizePath(descriptor.path())),
-                this.infoLine("values.info.environment", this.nullSafe(descriptor.environment())),
-                this.infoLine("values.info.players", this.nullSafe(descriptor.playerCount())),
-                this.infoLine("values.info.hardcore", this.nullSafe(descriptor.hardcore())),
-                this.infoLine("values.info.generate_structures", this.nullSafe(descriptor.generatesStructures())),
-                this.infoLine("values.info.configured_spawn", this.nullSafe(descriptor.configuredSpawn())),
-                this.infoLine("values.info.nether_portal", this.plugin.worldsFileStore().portalWorldSummary(name, PortalKind.NETHER)),
-                this.infoLine("values.info.nether_transfer", this.plugin.worldsFileStore().portalTransferSummary(name, PortalKind.NETHER)),
-                this.infoLine("values.info.end_portal", this.plugin.worldsFileStore().portalWorldSummary(name, PortalKind.END)),
-                this.infoLine("values.info.end_transfer", this.plugin.worldsFileStore().portalTransferSummary(name, PortalKind.END))
-            );
+                    this.infoLine("values.info.name", descriptor.name()),
+                    this.infoLine("values.info.loaded", descriptor.loaded()),
+                    this.infoLine("values.info.exists_on_disk", descriptor.existsOnDisk()),
+                    this.infoLine("values.info.tracked", descriptor.tracked()),
+                    this.infoLine("values.info.path", this.normalizePath(descriptor.path())),
+                    this.infoLine("values.info.environment", this.nullSafe(descriptor.environment())),
+                    this.infoLine("values.info.players", this.nullSafe(descriptor.playerCount())),
+                    this.infoLine("values.info.hardcore", this.nullSafe(descriptor.hardcore())),
+                    this.infoLine("values.info.generate_structures", this.nullSafe(descriptor.generatesStructures())),
+                    this.infoLine("values.info.configured_spawn", this.nullSafe(descriptor.configuredSpawn())),
+                    this.infoLine("values.info.nether_portal",
+                            this.plugin.worldsFileStore().portalWorldSummary(name, PortalKind.NETHER)),
+                    this.infoLine("values.info.nether_transfer",
+                            this.plugin.worldsFileStore().portalTransferSummary(name, PortalKind.NETHER)),
+                    this.infoLine("values.info.end_portal",
+                            this.plugin.worldsFileStore().portalWorldSummary(name, PortalKind.END)),
+                    this.infoLine("values.info.end_transfer",
+                            this.plugin.worldsFileStore().portalTransferSummary(name, PortalKind.END)));
         });
     }
 
     private void handleCreate(final CommandContext<CommandSourceStack> context) {
         final CommandSender sender = this.sender(context);
         final String name = context.get("name");
-        final World.Environment environment = this.parseEnvironment(sender, context.getOrDefault("environment", null), true);
+        final World.Environment environment = this.parseEnvironment(sender, context.getOrDefault("environment", null),
+                true);
         if (environment == null) {
             return;
         }
-        this.handleAsync(sender, this.service.createWorld(name, environment, context.getOrDefault("seed", null)), outcome -> List.of(outcome.message()));
+        this.handleAsync(sender, this.service.createWorld(name, environment, context.getOrDefault("seed", null)),
+                outcome -> List.of(outcome.message()));
     }
 
     private void handleLoad(final CommandContext<CommandSourceStack> context) {
         final CommandSender sender = this.sender(context);
         final String name = context.get("name");
-        final World.Environment environment = this.parseEnvironment(sender, context.getOrDefault("environment", null), false);
+        final World.Environment environment = this.parseEnvironment(sender, context.getOrDefault("environment", null),
+                false);
         if (context.getOrDefault("environment", null) != null && environment == null) {
             return;
         }
-        this.handleAsync(sender, this.service.loadWorld(name, environment), outcome -> List.of(outcome.message()));
+        this.handleAsync(sender, () -> this.service.loadWorld(name, environment),
+                outcome -> List.of(outcome.message()));
     }
 
     private void handleUnload(final CommandContext<CommandSourceStack> context) {
         final boolean save = context.getOrDefault("save", this.plugin.configStore().settings().unloadSaveByDefault());
-        this.handleAsync(this.sender(context), this.service.unloadWorld(context.get("name"), save), outcome -> List.of(outcome.message()));
+        this.handleAsync(this.sender(context), this.service.unloadWorld(context.get("name"), save),
+                outcome -> List.of(outcome.message()));
     }
 
     private void handleDelete(final CommandContext<CommandSourceStack> context) {
         final boolean save = context.getOrDefault("save", this.plugin.configStore().settings().deleteSaveByDefault());
-        this.handleAsync(this.sender(context), this.service.deleteWorld(context.get("name"), save), outcome -> List.of(outcome.message()));
+        this.handleAsync(this.sender(context), this.service.deleteWorld(context.get("name"), save),
+                outcome -> List.of(outcome.message()));
+    }
+
+    private void handleUntrack(final CommandContext<CommandSourceStack> context) {
+        this.handleAsync(this.sender(context), this.service.untrackWorld(context.get("name")),
+                outcome -> List.of(outcome.message()));
     }
 
     private void handleImport(final CommandContext<CommandSourceStack> context) {
         final CommandSender sender = this.sender(context);
-        final World.Environment environment = this.parseEnvironment(sender, context.getOrDefault("environment", null), false);
+        final World.Environment environment = this.parseEnvironment(sender, context.getOrDefault("environment", null),
+                false);
         if (context.getOrDefault("environment", null) != null && environment == null) {
             return;
         }
-        this.handleAsync(sender, this.service.importWorld(context.get("name"), environment), outcome -> List.of(outcome.message()));
+        this.handleAsync(sender, this.service.importWorld(context.get("name"), environment),
+                outcome -> List.of(outcome.message()));
     }
 
     private void handleCopy(final CommandContext<CommandSourceStack> context) {
-        final boolean loadCopiedWorld = context.getOrDefault("load", this.plugin.configStore().settings().loadCopiedWorldByDefault());
+        final boolean loadCopiedWorld = context.getOrDefault("load",
+                this.plugin.configStore().settings().loadCopiedWorldByDefault());
         this.handleAsync(
-            this.sender(context),
-            this.service.copyWorld(context.get("source"), context.get("target"), loadCopiedWorld),
-            outcome -> List.of(outcome.message())
-        );
+                this.sender(context),
+                this.service.copyWorld(context.get("source"), context.get("target"), loadCopiedWorld),
+                outcome -> List.of(outcome.message()));
     }
 
     private void handleTeleport(final CommandContext<CommandSourceStack> context) {
         final CommandSender sender = this.sender(context);
-        final Player target = this.resolveTargetPlayer(sender, context.getOrDefault("player", null), "world.command.tp.other");
+        final Player target = this.resolveTargetPlayer(sender, context.getOrDefault("player", null),
+                "world.command.tp.other");
         if (target == null) {
             return;
         }
 
-        this.handleAsync(sender, this.service.teleportPlayer(target, context.get("world")), outcome -> List.of(outcome.message()));
+        this.handleAsync(sender, this.service.teleportPlayer(target, context.get("world")),
+                outcome -> List.of(outcome.message()));
     }
 
     private void handleSpawnSelf(final CommandContext<CommandSourceStack> context) {
@@ -244,7 +266,8 @@ public final class WorldCommands {
             return;
         }
 
-        this.handleAsync(sender, this.service.sendPlayerToSpawn(player, player.getWorld().getName()), outcome -> List.of(outcome.message()));
+        this.handleAsync(sender, this.service.sendPlayerToSpawn(player, player.getWorld().getName()),
+                outcome -> List.of(outcome.message()));
     }
 
     private void handleSpawnWorld(final CommandContext<CommandSourceStack> context) {
@@ -254,7 +277,8 @@ public final class WorldCommands {
             return;
         }
 
-        this.handleAsync(sender, this.service.sendPlayerToSpawn(target, context.get("world")), outcome -> List.of(outcome.message()));
+        this.handleAsync(sender, this.service.sendPlayerToSpawn(target, context.get("world")),
+                outcome -> List.of(outcome.message()));
     }
 
     private void handleSpawnOther(final CommandContext<CommandSourceStack> context) {
@@ -264,7 +288,8 @@ public final class WorldCommands {
             return;
         }
 
-        this.handleAsync(sender, this.service.sendPlayerToSpawn(target, context.get("world")), outcome -> List.of(outcome.message()));
+        this.handleAsync(sender, this.service.sendPlayerToSpawn(target, context.get("world")),
+                outcome -> List.of(outcome.message()));
     }
 
     private void handleSetSpawnCurrent(final CommandContext<CommandSourceStack> context) {
@@ -274,7 +299,8 @@ public final class WorldCommands {
             return;
         }
 
-        this.handleAsync(sender, this.service.setSpawn(player.getWorld().getName(), player.getLocation()), outcome -> List.of(outcome.message()));
+        this.handleAsync(sender, this.service.setSpawn(player.getWorld().getName(), player.getLocation()),
+                outcome -> List.of(outcome.message()));
     }
 
     private void handleSetSpawnWorldCurrentSpawn(final CommandContext<CommandSourceStack> context) {
@@ -282,11 +308,13 @@ public final class WorldCommands {
         final String worldName = context.get("world");
         final World world = Bukkit.getWorld(worldName);
         if (world == null) {
-            this.service.reply(sender, this.messagesStore.message("service.world_not_loaded", this.placeholder("world", worldName)));
+            this.service.reply(sender,
+                    this.messagesStore.message("service.world_not_loaded", this.placeholder("world", worldName)));
             return;
         }
 
-        this.handleAsync(sender, this.service.setSpawn(worldName, world.getSpawnLocation()), outcome -> List.of(outcome.message()));
+        this.handleAsync(sender, this.service.setSpawn(worldName, world.getSpawnLocation()),
+                outcome -> List.of(outcome.message()));
     }
 
     private void handleSetSpawnExplicit(final CommandContext<CommandSourceStack> context) {
@@ -294,7 +322,8 @@ public final class WorldCommands {
         final String worldName = context.get("world");
         final World world = Bukkit.getWorld(worldName);
         if (world == null) {
-            this.service.reply(sender, this.messagesStore.message("service.world_not_loaded", this.placeholder("world", worldName)));
+            this.service.reply(sender,
+                    this.messagesStore.message("service.world_not_loaded", this.placeholder("world", worldName)));
             return;
         }
 
@@ -316,10 +345,9 @@ public final class WorldCommands {
         }
 
         this.handleAsync(
-            sender,
-            this.service.setPortalTarget(context.get("world"), portalKind, context.get("target")),
-            outcome -> List.of(outcome.message())
-        );
+                sender,
+                this.service.setPortalTarget(context.get("world"), portalKind, context.get("target")),
+                outcome -> List.of(outcome.message()));
     }
 
     private void handleSetTransfer(final CommandContext<CommandSourceStack> context) {
@@ -330,13 +358,13 @@ public final class WorldCommands {
         }
 
         this.handleAsync(
-            sender,
-            this.service.setPortalTransfer(context.get("world"), portalKind, context.get("target")),
-            outcome -> List.of(outcome.message())
-        );
+                sender,
+                this.service.setPortalTransfer(context.get("world"), portalKind, context.get("target")),
+                outcome -> List.of(outcome.message()));
     }
 
-    private Player resolveTargetPlayer(final CommandSender sender, final String playerName, final String otherPermission) {
+    private Player resolveTargetPlayer(final CommandSender sender, final String playerName,
+            final String otherPermission) {
         if (playerName == null) {
             if (sender instanceof final Player player) {
                 return player;
@@ -347,12 +375,14 @@ public final class WorldCommands {
 
         final Player player = Bukkit.getPlayerExact(playerName);
         if (player == null) {
-            this.service.reply(sender, this.messagesStore.message("general.player_not_found", this.placeholder("player", playerName)));
+            this.service.reply(sender,
+                    this.messagesStore.message("general.player_not_found", this.placeholder("player", playerName)));
             return null;
         }
         if (!(sender instanceof Player) || !player.getUniqueId().equals(((Player) sender).getUniqueId())) {
             if (!sender.hasPermission(otherPermission)) {
-                this.service.reply(sender, this.messagesStore.message("general.permission_required_other", this.placeholder("permission", otherPermission)));
+                this.service.reply(sender, this.messagesStore.message("general.permission_required_other",
+                        this.placeholder("permission", otherPermission)));
                 return null;
             }
         }
@@ -360,13 +390,17 @@ public final class WorldCommands {
     }
 
     private <T> void handleAsync(
-        final CommandSender sender,
-        final CompletableFuture<OperationOutcome<T>> future,
-        final java.util.function.Function<OperationOutcome<T>, List<String>> formatter
-    ) {
+            final CommandSender sender,
+            final CompletableFuture<OperationOutcome<T>> future,
+            final java.util.function.Function<OperationOutcome<T>, List<String>> formatter) {
         future.whenComplete((outcome, throwable) -> {
             if (throwable != null) {
-                this.service.reply(sender, this.messagesStore.message("general.operation_failed", this.placeholder("reason", throwable.getMessage())));
+                final Throwable unwrapped = throwable.getCause() != null ? throwable.getCause() : throwable;
+                final String reason = unwrapped.getMessage() == null || unwrapped.getMessage().isBlank()
+                        ? unwrapped.getClass().getSimpleName()
+                        : unwrapped.getMessage();
+                this.service.reply(sender,
+                        this.messagesStore.message("general.operation_failed", this.placeholder("reason", reason)));
                 return;
             }
 
@@ -374,6 +408,26 @@ public final class WorldCommands {
                 this.service.reply(sender, line);
             }
         });
+    }
+
+    private <T> void handleAsync(
+            final CommandSender sender,
+            final java.util.function.Supplier<CompletableFuture<OperationOutcome<T>>> futureSupplier,
+            final java.util.function.Function<OperationOutcome<T>, List<String>> formatter) {
+        final CompletableFuture<OperationOutcome<T>> future;
+        try {
+            future = futureSupplier.get();
+        } catch (final Throwable throwable) {
+            final Throwable unwrapped = throwable.getCause() != null ? throwable.getCause() : throwable;
+            final String reason = unwrapped.getMessage() == null || unwrapped.getMessage().isBlank()
+                    ? unwrapped.getClass().getSimpleName()
+                    : unwrapped.getMessage();
+            this.service.reply(sender,
+                    this.messagesStore.message("general.operation_failed", this.placeholder("reason", reason)));
+            return;
+        }
+
+        this.handleAsync(sender, future, formatter);
     }
 
     private SuggestionProvider<CommandSourceStack> environmentSuggestions() {
@@ -385,19 +439,28 @@ public final class WorldCommands {
     }
 
     private SuggestionProvider<CommandSourceStack> knownWorldSuggestions() {
-        return (context, input) -> this.service.suggestKnownWorlds().thenApply(values -> this.toSuggestions(values, input));
+        return (context, input) -> this.service.suggestKnownWorlds()
+                .thenApply(values -> this.toSuggestions(values, input));
     }
 
     private SuggestionProvider<CommandSourceStack> loadedWorldSuggestions() {
-        return (context, input) -> this.service.suggestLoadedWorlds().thenApply(values -> this.toSuggestions(values, input));
+        return (context, input) -> this.service.suggestLoadedWorlds()
+                .thenApply(values -> this.toSuggestions(values, input));
+    }
+
+    private SuggestionProvider<CommandSourceStack> trackedWorldSuggestions() {
+        return (context, input) -> this.service.suggestTrackedWorlds()
+                .thenApply(values -> this.toSuggestions(values, input));
     }
 
     private SuggestionProvider<CommandSourceStack> diskWorldSuggestions() {
-        return (context, input) -> this.service.suggestDiskWorlds().thenApply(values -> this.toSuggestions(values, input));
+        return (context, input) -> this.service.suggestDiskWorlds()
+                .thenApply(values -> this.toSuggestions(values, input));
     }
 
     private SuggestionProvider<CommandSourceStack> playerSuggestions() {
-        return (context, input) -> this.service.suggestOnlinePlayers().thenApply(values -> this.toSuggestions(values, input));
+        return (context, input) -> this.service.suggestOnlinePlayers()
+                .thenApply(values -> this.toSuggestions(values, input));
     }
 
     private SuggestionProvider<CommandSourceStack> loadedWorldOrClearSuggestions() {
@@ -416,7 +479,8 @@ public final class WorldCommands {
         return context.sender().getSender();
     }
 
-    private World.Environment parseEnvironment(final CommandSender sender, final String raw, final boolean useDefaultWhenMissing) {
+    private World.Environment parseEnvironment(final CommandSender sender, final String raw,
+            final boolean useDefaultWhenMissing) {
         if (raw == null || raw.isBlank()) {
             return useDefaultWhenMissing ? this.plugin.configStore().settings().defaults().environment() : null;
         }
@@ -424,7 +488,8 @@ public final class WorldCommands {
         try {
             return World.Environment.valueOf(raw.toUpperCase(Locale.ROOT));
         } catch (final IllegalArgumentException ex) {
-            this.service.reply(sender, this.messagesStore.message("general.invalid_environment", this.placeholder("input", raw)));
+            this.service.reply(sender,
+                    this.messagesStore.message("general.invalid_environment", this.placeholder("input", raw)));
             return null;
         }
     }
@@ -435,7 +500,8 @@ public final class WorldCommands {
             return portalKind;
         }
 
-        this.service.reply(sender, this.messagesStore.message("general.invalid_portal", this.placeholder("input", raw)));
+        this.service.reply(sender,
+                this.messagesStore.message("general.invalid_portal", this.placeholder("input", raw)));
         return null;
     }
 
@@ -449,8 +515,8 @@ public final class WorldCommands {
 
     private Iterable<Suggestion> toSuggestions(final List<String> values) {
         return values.stream()
-            .map(Suggestion::suggestion)
-            .toList();
+                .map(Suggestion::suggestion)
+                .toList();
     }
 
     private Iterable<Suggestion> toSuggestions(final List<String> values, final CommandInput input) {
@@ -460,17 +526,17 @@ public final class WorldCommands {
     private List<String> filterSuggestions(final List<String> values, final String token) {
         final String normalizedToken = token == null ? "" : token.strip();
         return values.stream()
-            .filter(value -> normalizedToken.isEmpty() || value.regionMatches(true, 0, normalizedToken, 0, normalizedToken.length()))
-            .limit(MAX_SUGGESTIONS)
-            .toList();
+                .filter(value -> normalizedToken.isEmpty()
+                        || value.regionMatches(true, 0, normalizedToken, 0, normalizedToken.length()))
+                .limit(MAX_SUGGESTIONS)
+                .toList();
     }
 
     private String infoLine(final String labelKey, final Object value) {
         return this.messagesStore.message(
-            "general.info_line",
-            this.placeholder("label", this.messagesStore.value(labelKey)),
-            this.placeholder("value", value)
-        );
+                "general.info_line",
+                this.placeholder("label", this.messagesStore.value(labelKey)),
+                this.placeholder("value", value));
     }
 
     private MessagePlaceholder placeholder(final String name, final Object value) {
